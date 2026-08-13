@@ -1,0 +1,103 @@
+// ノコセル データモデル（design: nokoseru_design.md 5章準拠）
+// SQLite制約により配列は Json 型（文字列配列としてシリアライズ）で保持する。
+
+generator client {
+  provider = "prisma-client"
+  output   = "../app/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+model Person {
+  id        String   @id @default(uuid())
+  name      String
+  relation  String? // 続柄（例: 父、母、祖母）
+  createdAt DateTime @default(now())
+
+  sessions   Session[]
+  coverages  Coverage[]
+  deliveries Delivery[]
+  photos     Photo[]
+}
+
+model Session {
+  id           String    @id @default(uuid())
+  personId     String
+  person       Person    @relation(fields: [personId], references: [id])
+  questionText String // 表層：実際に提示した質問文
+  occasionHint String? // 裏層：想定配信先（UI非開示）
+  videoPath    String? // storage/videos 配下の相対パス
+  audioPath    String?
+  recordedAt   DateTime?
+  durationSec  Float?
+  status       String    @default("uploading") // uploading|processing|structured|failed
+  sourcePhotoId String?
+  sourcePhoto  Photo?    @relation(fields: [sourcePhotoId], references: [id])
+  createdAt    DateTime  @default(now())
+
+  utterances Utterance[]
+  episodes   Episode[]
+}
+
+model Utterance {
+  id        String  @id @default(uuid())
+  sessionId String
+  session   Session @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  startSec  Float
+  endSec    Float
+  speaker   String // interviewee | ai
+  text      String
+}
+
+model Episode {
+  id        String   @id @default(uuid())
+  sessionId String
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  title     String
+  startSec  Float
+  endSec    Float
+  tags      Json     @default("[]")
+  era       String?
+  people    Json     @default("[]")
+  theme     String?
+  deliverTo Json     @default("[]")
+  occasion  String? // Coverageのoccasionと対応
+  excluded  Boolean  @default(false) // 収録者本人による除外指定（企画書6.2）
+  createdAt DateTime @default(now())
+}
+
+model Coverage {
+  id                 String   @id @default(uuid())
+  personId           String
+  person             Person   @relation(fields: [personId], references: [id])
+  occasion           String
+  status             String   @default("empty") // covered|thin|empty
+  suggestedQuestions Json     @default("[]")
+  updatedAt          DateTime @updatedAt
+
+  @@unique([personId, occasion])
+}
+
+model Delivery {
+  id               String    @id @default(uuid())
+  personId         String
+  person           Person    @relation(fields: [personId], references: [id])
+  occasion         String
+  deliveredAt      DateTime?
+  exportBundlePath String?
+  createdAt        DateTime  @default(now())
+}
+
+model Photo {
+  id            String   @id @default(uuid())
+  personId      String
+  person        Person   @relation(fields: [personId], references: [id])
+  originalPath  String
+  colorizedPath String?
+  lastComment   String? // 直近の修正指示（再変換時にプロンプトへ追加した内容）
+  uploadedAt    DateTime @default(now())
+
+  sessions Session[]
+}
