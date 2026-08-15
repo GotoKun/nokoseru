@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import { Hit } from "@/app/components/km/Hit";
 
 export function ExportFlow({ personId }: { personId: string }) {
   const router = useRouter();
@@ -32,23 +33,21 @@ export function ExportFlow({ personId }: { personId: string }) {
   }
 
   return (
-    <div className="mt-8 rounded-xl border border-border bg-surface px-5 py-5">
-      <button
-        onClick={runExport}
-        disabled={status === "building"}
-        className="rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-      >
-        {status === "building" ? "書き出しています…" : "エクスポートを作成する"}
-      </button>
+    <div className="mt-8 rounded-2xl px-5 py-5 shadow-[inset_0_0_0_1px_var(--border)]">
+      <Hit locked={status === "building"} onActivate={runExport} className="w-fit">
+        <div className="km-btn km-btn-primary">
+          {status === "building" ? "書き出しています…" : "エクスポートを作成する"}
+        </div>
+      </Hit>
 
       {status === "done" && url && (
-        <div className="mt-5 rounded-xl border-2 border-accent bg-accent-soft/50 px-5 py-5 text-center">
+        <div className="mt-5 rounded-2xl bg-accent-soft px-5 py-5 text-center shadow-[inset_0_0_0_2px_var(--accent-strong)]">
           <p className="text-sm">準備ができました。ダウンロードが始まらない場合は下のボタンを押してください。</p>
           <a
             ref={downloadRef}
             href={url}
-            download="nokoseru-export.zip"
-            className="mt-3 inline-block rounded-full bg-accent px-8 py-3.5 text-base font-bold text-white shadow-md hover:opacity-90"
+            download="kaerumu-export.zip"
+            className="mt-3 inline-block rounded-full bg-accent-strong px-8 py-3.5 text-base font-bold text-white shadow-md hover:opacity-90"
           >
             ダウンロードする
           </a>

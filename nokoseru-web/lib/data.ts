@@ -1,20 +1,22 @@
 import { prisma } from "./prisma";
+import type { Prisma } from "@/app/generated/prisma/client";
 import {
   OCCASIONS,
   coverageStatusFromCount,
   type OccasionId,
 } from "./occasions";
 import {
-  generateCandidateQuestions,
+  generateQuestionsForOccasions,
   structureSession,
   transcribeAudio,
   colorizePhoto,
   suggestQuestionFromPhoto,
   DUMMY_MODE,
   type CandidateQuestion,
+  type FamilyMember,
 } from "./orcarouter";
 import { saveBuffer, readStoredFile, deleteStoredFile, mediaUrl, type StorageCategory } from "./storage";
-import { extractAudioForStt, remuxForSeeking, probeDuration } from "./media";
+import { extractAudioForStt, remuxForSeeking, probeDuration, mergeLumaFromOriginal } from "./media";
 import { randomUUID } from "node:crypto";
 
 // ---- Person ----
@@ -28,16 +30,66 @@ export async function listPersons() {
   });
 }
 
-export async function createPerson(name: string, relation: string | null) {
-  const person = await prisma.person.create({ data: { name, relation } });
-  await prisma.coverage.createMany({
-    data: OCCASIONS.map((o) => ({ personId: person.id, occasion: o.id, status: "empty" })),
+export interface PersonProfileInput {
+  birthday?: Date | null;
+  familyMembers?: FamilyMember[];
+  hometown?: string | null;
+  occupation?: string | null;
+  hobbies?: string | null;
+  notes?: string | null;
+}
+
+export async function createPerson(name: string, relation: string | null, profile: PersonProfileInput = {}) {
+  const person = await prisma.person.create({
+    data: {
+      name,
+      relation,
+      birthday: profile.birthday ?? null,
+      familyMembers: (profile.familyMembers ?? []) as unknown as Prisma.InputJsonValue,
+      hometown: profile.hometown ?? null,
+      occupation: profile.occupation ?? null,
+      hobbies: profile.hobbies ?? null,
+      notes: profile.notes ?? null,
+    },
   });
+  await prisma.coverage.createMany({
+    // suggestedQuestionsはスキーマ側のJSONデフォルト値に頼らず常に明示する
+    // （SQLite上でJson型のデフォルト値が正しく初期化されない既知の問題があるため）。
+    data: OCCASIONS.map((o) => ({ personId: person.id, occasion: o.id, status: "empty", suggestedQuestions: [] })),
+  });
+
+  // 登録直後から収録画面が即座に開けるよう、初回の質問候補もバックグラウンドで用意しておく。
+  refreshSuggestedQuestions(person.id).catch((err) => {
+    console.error("[refresh suggested questions] failed", err);
+  });
+
   return person;
 }
 
 export async function getPerson(personId: string) {
   return prisma.person.findUnique({ where: { id: personId } });
+}
+
+// プロフィール（誕生日・家族構成）は任意入力かつ後から追加・変更できる。
+// 変更後は質問候補が古い前提のままにならないよう、キャッシュをバックグラウンドで再生成する。
+export async function updatePersonProfile(
+  personId: string,
+  data: { name?: string; relation?: string | null } & PersonProfileInput
+) {
+  const person = await prisma.person.update({
+    where: { id: personId },
+    data: {
+      ...data,
+      familyMembers:
+        data.familyMembers !== undefined
+          ? (data.familyMembers as unknown as Prisma.InputJsonValue)
+          : undefined,
+    },
+  });
+  refreshSuggestedQuestions(personId).catch((err) => {
+    console.error("[refresh suggested questions] failed", err);
+  });
+  return person;
 }
 
 export async function listDeliveries(personId: string) {
@@ -61,7 +113,7 @@ export async function recomputeCoverage(personId: string) {
     await prisma.coverage.upsert({
       where: { personId_occasion: { personId, occasion: occ.id } },
       update: { status },
-      create: { personId, occasion: occ.id, status },
+      create: { personId, occasion: occ.id, status, suggestedQuestions: [] },
     });
   }
 }
@@ -70,36 +122,195 @@ export async function getCoverageMap(personId: string) {
   const existing = await prisma.coverage.findMany({ where: { personId } });
   if (existing.length === 0) {
     await prisma.coverage.createMany({
-      data: OCCASIONS.map((o) => ({ personId, occasion: o.id, status: "empty" })),
+      data: OCCASIONS.map((o) => ({ personId, occasion: o.id, status: "empty", suggestedQuestions: [] })),
     });
     return prisma.coverage.findMany({ where: { personId } });
   }
   return existing;
 }
 
-// ---- Next question candidates ----
+// 節目ごとの見出し一覧（画面06「まだ聞けていないこと」用）。
+// バーも％も使わず、実際の見出しを並べることで「見えている情報量そのものが状態になる」。
+export async function listEpisodeHeadingsByOccasion(personId: string): Promise<Record<string, string[]>> {
+  const episodes = await prisma.episode.findMany({
+    where: {
+      excluded: false,
+      session: {
+        personId,
+        status: "structured",
+        OR: [{ unlockAt: null }, { unlockAt: { lte: new Date() } }],
+      },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { title: true, occasion: true },
+  });
+  const map: Record<string, string[]> = {};
+  for (const e of episodes) {
+    if (!e.occasion) continue;
+    (map[e.occasion] ??= []).push(e.title);
+  }
+  return map;
+}
 
-export async function getNextQuestionCandidates(personId: string): Promise<CandidateQuestion[]> {
-  const person = await prisma.person.findUniqueOrThrow({ where: { id: personId } });
-  const coverage = await getCoverageMap(personId);
-  const coverageSummary = coverage.map((c) => ({
-    occasion: c.occasion as OccasionId,
-    label: OCCASIONS.find((o) => o.id === c.occasion)?.label ?? c.occasion,
-    status: c.status,
-  }));
+// ---- Next question candidates ----
+// 収録画面を開くたびにLLMを待たせない設計：finalizeSession完了直後にバックグラウンドで
+// refreshSuggestedQuestions()を呼び、次に出すべき質問をCoverage.suggestedQuestionsへ
+// 事前キャッシュしておく。getNextQuestionCandidatesは基本そのキャッシュを読むだけにする。
+
+const STATUS_PRIORITY: Record<string, number> = { empty: 0, thin: 1, covered: 2 };
+
+function pickPriorityOccasions<T extends { occasion: string; status: string }>(
+  coverage: T[],
+  limit: number
+): T[] {
+  return [...coverage]
+    .sort((a, b) => (STATUS_PRIORITY[a.status] ?? 9) - (STATUS_PRIORITY[b.status] ?? 9))
+    .slice(0, limit);
+}
+
+async function recentEpisodeSummaries(personId: string): Promise<string[]> {
   const recentEpisodes = await prisma.episode.findMany({
     where: { excluded: false, session: { personId } },
     orderBy: { createdAt: "desc" },
     take: 5,
     select: { title: true, theme: true },
   });
+  return recentEpisodes.map((e) => e.theme || e.title);
+}
 
-  return generateCandidateQuestions({
+function personProfileParams(person: {
+  name: string;
+  relation: string | null;
+  birthday: Date | null;
+  familyMembers: unknown;
+  hometown: string | null;
+  occupation: string | null;
+  hobbies: string | null;
+  notes: string | null;
+}) {
+  return {
     personName: person.name,
     relation: person.relation,
-    coverageSummary,
-    recentEpisodeSummaries: recentEpisodes.map((e) => e.theme || e.title),
+    birthday: person.birthday,
+    familyMembers: (person.familyMembers as unknown as FamilyMember[]) ?? [],
+    hometown: person.hometown,
+    occupation: person.occupation,
+    hobbies: person.hobbies,
+    notes: person.notes,
+  };
+}
+
+export async function refreshSuggestedQuestions(personId: string): Promise<void> {
+  const person = await prisma.person.findUniqueOrThrow({ where: { id: personId } });
+  const coverage = await getCoverageMap(personId);
+  const targets = pickPriorityOccasions(coverage, 3);
+
+  const questions = await generateQuestionsForOccasions({
+    ...personProfileParams(person),
+    targetOccasions: targets.map((c) => ({
+      occasion: c.occasion as OccasionId,
+      label: OCCASIONS.find((o) => o.id === c.occasion)?.label ?? c.occasion,
+    })),
+    recentEpisodeSummaries: await recentEpisodeSummaries(personId),
   });
+
+  for (const q of questions) {
+    await prisma.coverage.update({
+      where: { personId_occasion: { personId, occasion: q.occasionHint } },
+      data: { suggestedQuestions: [q.text] },
+    });
+  }
+}
+
+export async function getNextQuestionCandidates(personId: string): Promise<CandidateQuestion[]> {
+  const coverage = await getCoverageMap(personId);
+  const targets = pickPriorityOccasions(coverage, 3);
+
+  const cached: CandidateQuestion[] = [];
+  const missing: { occasion: OccasionId; label: string }[] = [];
+  for (const c of targets) {
+    const q = (c.suggestedQuestions as string[])?.[0];
+    if (q) {
+      cached.push({ text: q, occasionHint: c.occasion as OccasionId });
+    } else {
+      missing.push({
+        occasion: c.occasion as OccasionId,
+        label: OCCASIONS.find((o) => o.id === c.occasion)?.label ?? c.occasion,
+      });
+    }
+  }
+
+  if (missing.length === 0) {
+    return cached;
+  }
+
+  // まだキャッシュがない節目（初回利用時など）だけ、その場で生成する。
+  const person = await prisma.person.findUniqueOrThrow({ where: { id: personId } });
+  const fresh = await generateQuestionsForOccasions({
+    ...personProfileParams(person),
+    targetOccasions: missing,
+    recentEpisodeSummaries: await recentEpisodeSummaries(personId),
+  });
+  for (const q of fresh) {
+    try {
+      await prisma.coverage.update({
+        where: { personId_occasion: { personId, occasion: q.occasionHint } },
+        data: { suggestedQuestions: [q.text] },
+      });
+    } catch (err) {
+      console.error("[cache suggested question] failed", err);
+    }
+  }
+
+  return [...cached, ...fresh];
+}
+
+// カエルムUI（画面1）は候補を並べず、AIが1問だけ出す。
+// pickPriorityOccasions(coverage, 1) は status優先度（empty→thin→covered）でソートした先頭を返すため、
+// 「まだ記録のない節目を必ず優先する」という要件をそのまま満たす
+// （UI仕様書9章：3件取得後にカーソル回転させると empty 優先が崩れる、という実装バグの回避）。
+export async function getNextSingleQuestion(
+  personId: string,
+  opts: { forceFresh?: boolean } = {}
+): Promise<CandidateQuestion> {
+  const coverage = await getCoverageMap(personId);
+  const [target] = pickPriorityOccasions(coverage, 1);
+  if (!target) {
+    return { text: "最近、印象に残っていることはありますか", occasionHint: "daily" };
+  }
+
+  // 画面01「他に話したいことがある」＝今の質問を更新する操作のときは、
+  // キャッシュを読まずに必ず新しく生成する（同じ質問が返ってくるのを防ぐため）。
+  if (!opts.forceFresh) {
+    const cachedText = (target.suggestedQuestions as string[])?.[0];
+    if (cachedText) {
+      return { text: cachedText, occasionHint: target.occasion as OccasionId };
+    }
+  }
+
+  const person = await prisma.person.findUniqueOrThrow({ where: { id: personId } });
+  const [fresh] = await generateQuestionsForOccasions({
+    ...personProfileParams(person),
+    targetOccasions: [
+      {
+        occasion: target.occasion as OccasionId,
+        label: OCCASIONS.find((o) => o.id === target.occasion)?.label ?? target.occasion,
+      },
+    ],
+    recentEpisodeSummaries: await recentEpisodeSummaries(personId),
+  });
+  if (fresh) {
+    try {
+      await prisma.coverage.update({
+        where: { personId_occasion: { personId, occasion: fresh.occasionHint } },
+        data: { suggestedQuestions: [fresh.text] },
+      });
+    } catch (err) {
+      console.error("[cache suggested question] failed", err);
+    }
+    return fresh;
+  }
+  return { text: "最近、印象に残っていることはありますか", occasionHint: target.occasion as OccasionId };
 }
 
 // ---- Episode search (keyword / tag) ----
@@ -118,12 +329,24 @@ export interface EpisodeSearchResult {
   occasionLabel: string;
   videoUrl: string | null;
   questionText: string;
+  unlockAt: string | null;
+  recordedAt: string | null;
+  // 再生画面（画面07）の字幕オーバーレイ用。動画を加工せず、テキストだけをクライアント側で同期表示する。
+  subtitles: { startSec: number; endSec: number; text: string }[];
 }
 
 export async function searchEpisodes(personId: string, query: string): Promise<EpisodeSearchResult[]> {
   const episodes = await prisma.episode.findMany({
-    where: { excluded: false, session: { personId, status: "structured" } },
-    include: { session: true },
+    where: {
+      excluded: false,
+      session: {
+        personId,
+        status: "structured",
+        // 鍵付きメッセージ：unlockAtが未来のセッションは、日時が来るまで検索・再生の対象から外す。
+        OR: [{ unlockAt: null }, { unlockAt: { lte: new Date() } }],
+      },
+    },
+    include: { session: { include: { utterances: { orderBy: { startSec: "asc" } } } } },
     orderBy: { createdAt: "desc" },
   });
 
@@ -152,7 +375,49 @@ export async function searchEpisodes(personId: string, query: string): Promise<E
     occasionLabel: OCCASIONS.find((o) => o.id === e.occasion)?.label ?? "未分類",
     videoUrl: e.session.videoPath ? mediaUrl(e.session.videoPath) : null,
     questionText: e.session.questionText,
+    unlockAt: e.session.unlockAt ? e.session.unlockAt.toISOString() : null,
+    recordedAt: e.session.recordedAt ? e.session.recordedAt.toISOString() : null,
+    subtitles: e.session.utterances
+      .filter((u) => u.speaker === "interviewee")
+      .map((u) => ({ startSec: u.startSec, endSec: u.endSec, text: u.text })),
   }));
+}
+
+// 一覧画面（画面05）用：施錠中のものも含めた全セッションの要約。
+// 開封済み（unlockAtなし or 過ぎている）／施錠中（unlockAtが未来）の判定に使う。
+export interface SessionCardSummary {
+  sessionId: string;
+  episodeId: string | null;
+  title: string | null;
+  recordedAt: string | null;
+  unlockAt: string | null;
+  locked: boolean;
+  // 施錠中でも節目の名前だけは見せる（UI仕様書：「親が生きているうちから子に見えていて、話すきっかけになる」）。
+  // 内容（タイトル・タグ・本文）は日時が来るまで一切渡さない。
+  lockLabel: string | null;
+}
+
+export async function listSessionCards(personId: string): Promise<SessionCardSummary[]> {
+  const sessions = await prisma.session.findMany({
+    where: { personId, status: "structured" },
+    include: { episodes: { where: { excluded: false }, orderBy: { createdAt: "asc" }, take: 1 } },
+    orderBy: { createdAt: "desc" },
+  });
+  const now = Date.now();
+  return sessions.map((s) => {
+    const locked = Boolean(s.unlockAt && s.unlockAt.getTime() > now);
+    const episode = s.episodes[0] ?? null;
+    const occasionLabel = OCCASIONS.find((o) => o.id === (episode?.occasion ?? s.occasionHint))?.label ?? null;
+    return {
+      sessionId: s.id,
+      episodeId: locked ? null : episode?.id ?? null,
+      title: locked ? null : episode?.title ?? s.questionText,
+      recordedAt: locked ? null : s.recordedAt ? s.recordedAt.toISOString() : null,
+      unlockAt: s.unlockAt ? s.unlockAt.toISOString() : null,
+      locked,
+      lockLabel: locked ? occasionLabel ?? "まだ開けられません" : null,
+    };
+  });
 }
 
 // ---- Sessions ----
@@ -172,6 +437,32 @@ export async function createSession(params: {
       status: "uploading",
     },
   });
+}
+
+// 鍵付きメッセージ：撮影者が「この回答は指定した日時まで見られないように」と設定できる。
+// 遺族側には「鍵のかかったメッセージが存在すること」と開封日時だけを示し、内容（タイトル・タグ・
+// 本文）は日時が来るまで一切渡さない（listLockedSessionsが最小限の情報しか返さないのはそのため）。
+export async function setSessionUnlockAt(sessionId: string, unlockAt: Date | null) {
+  return prisma.session.update({ where: { id: sessionId }, data: { unlockAt } });
+}
+
+export interface LockedSessionSummary {
+  id: string;
+  unlockAt: string;
+  recordedAt: string | null;
+}
+
+export async function listLockedSessions(personId: string): Promise<LockedSessionSummary[]> {
+  const sessions = await prisma.session.findMany({
+    where: { personId, status: "structured", unlockAt: { gt: new Date() } },
+    orderBy: { unlockAt: "asc" },
+    select: { id: true, unlockAt: true, recordedAt: true },
+  });
+  return sessions.map((s) => ({
+    id: s.id,
+    unlockAt: s.unlockAt!.toISOString(),
+    recordedAt: s.recordedAt ? s.recordedAt.toISOString() : null,
+  }));
 }
 
 function extensionForMime(mimeType: string): string {
@@ -287,6 +578,12 @@ export async function finalizeSession(sessionId: string) {
 
     await recomputeCoverage(session.personId);
 
+    // 次回の収録画面を即座に開けるよう、次の質問候補をバックグラウンドで事前生成しておく。
+    // レスポンスは待たせない（fire-and-forget）。
+    refreshSuggestedQuestions(session.personId).catch((err) => {
+      console.error("[refresh suggested questions] failed", err);
+    });
+
     return prisma.session.findUniqueOrThrow({
       where: { id: sessionId },
       include: { episodes: true, utterances: true },
@@ -295,6 +592,20 @@ export async function finalizeSession(sessionId: string) {
     await prisma.session.update({ where: { id: sessionId }, data: { status: "failed" } });
     throw err;
   }
+}
+
+// 確認画面（画面04）で「残さない」を選んだ場合の実削除。
+// UI仕様書2章の制約どおり、「残さないときは、保存しません。」を文字通り実装する
+// （除外フラグで隠すのではなく、動画ファイル・発話・エピソード・セッション行を消す）。
+export async function discardSession(sessionId: string): Promise<void> {
+  const session = await prisma.session.findUnique({ where: { id: sessionId } });
+  if (!session) return;
+  await prisma.utterance.deleteMany({ where: { sessionId } });
+  await prisma.episode.deleteMany({ where: { sessionId } });
+  await prisma.session.delete({ where: { id: sessionId } });
+  if (session.videoPath) await deleteStoredFile(session.videoPath);
+  if (session.audioPath) await deleteStoredFile(session.audioPath);
+  await recomputeCoverage(session.personId);
 }
 
 export async function toggleEpisodeExclusion(episodeId: string, excluded: boolean) {
@@ -310,6 +621,25 @@ export async function listPhotos(personId: string) {
   return prisma.photo.findMany({ where: { personId }, orderBy: { uploadedAt: "desc" } });
 }
 
+// AIには色だけを決めさせ、最終画像の構造（明暗＝輪郭・表情）は常に元写真からそのまま使う。
+// AI出力の輝度は使わず捨てるため、「顔の向き・輪郭が変わる」ことが構造的に起こらなくなる
+// （lib/media.tsのmergeLumaFromOriginal参照）。合成に失敗した場合はAIの出力をそのまま使う。
+async function colorizeWithStructurePreserved(
+  original: Buffer,
+  originalExt: string,
+  filename: string,
+  extraInstruction?: string
+): Promise<{ image: Buffer; ext: "png" | "jpg" }> {
+  const colorized = await colorizePhoto(original, filename, extraInstruction);
+  try {
+    const merged = await mergeLumaFromOriginal(original, originalExt, colorized.image, colorized.ext);
+    return { image: merged, ext: "png" };
+  } catch (err) {
+    console.error("[luma merge] failed, falling back to AI output as-is", err);
+    return colorized;
+  }
+}
+
 export async function createPhoto(personId: string, data: Buffer, mimeType: string) {
   const id = randomUUID();
   const ext = mimeType.includes("png") ? "png" : "jpg";
@@ -317,7 +647,7 @@ export async function createPhoto(personId: string, data: Buffer, mimeType: stri
 
   let colorizedRel: string | null = null;
   try {
-    const colorized = await colorizePhoto(data, `${id}_original.${ext}`);
+    const colorized = await colorizeWithStructurePreserved(data, ext, `${id}_original.${ext}`);
     colorizedRel = await saveBuffer("photos", `${id}_colorized.${colorized.ext}`, colorized.image);
   } catch (err) {
     console.error("[photo colorize] failed", err);
@@ -336,9 +666,10 @@ export async function createPhoto(personId: string, data: Buffer, mimeType: stri
 export async function recolorizePhoto(photoId: string, comment: string) {
   const photo = await prisma.photo.findUniqueOrThrow({ where: { id: photoId } });
   const original = await readStoredFile(photo.originalPath);
-  const filename = photo.originalPath.split("/").pop() ?? `${photo.id}_original.jpg`;
+  const ext = photo.originalPath.split(".").pop() ?? "jpg";
+  const filename = photo.originalPath.split("/").pop() ?? `${photo.id}_original.${ext}`;
 
-  const colorized = await colorizePhoto(original, filename, comment.trim() || undefined);
+  const colorized = await colorizeWithStructurePreserved(original, ext, filename, comment.trim() || undefined);
   const colorizedRel = await saveBuffer("photos", `${photo.id}_colorized.${colorized.ext}`, colorized.image);
 
   return prisma.photo.update({

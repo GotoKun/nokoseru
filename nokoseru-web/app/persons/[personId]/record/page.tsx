@@ -1,8 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getPerson } from "@/lib/data";
-import { PersonNav } from "@/app/components/PersonNav";
 import { RecordFlow } from "./RecordFlow";
+import { PcWidthWarning } from "./PcWidthWarning";
 
 export default async function RecordPage({
   params,
@@ -18,13 +18,14 @@ export default async function RecordPage({
   const sourcePhotoId = typeof sp.photoId === "string" ? sp.photoId : undefined;
 
   return (
-    <div className="flex-1 bg-background">
-      <main className="mx-auto max-w-2xl px-6 py-16">
-        <Link href={`/persons/${person.id}`} className="text-sm text-muted hover:text-accent">
+    <div className="relative flex-1">
+      <main className="mx-auto max-w-lg px-6 py-10">
+        <Link href={`/persons/${person.id}`} className="text-xs text-muted hover:text-accent">
           ← {person.name}さんのページに戻る
         </Link>
-        <h1 className="mt-4 text-2xl font-bold">収録</h1>
-        <PersonNav personId={person.id} active="/record" />
+        <div className="mt-4">
+          <PcWidthWarning />
+        </div>
 
         <RecordFlow
           personId={person.id}

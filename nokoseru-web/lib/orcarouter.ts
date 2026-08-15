@@ -191,23 +191,53 @@ export interface CandidateQuestion {
   occasionHint: OccasionId;
 }
 
-export async function generateCandidateQuestions(params: {
+export interface FamilyMember {
+  name: string;
+  relationship: string;
+}
+
+// 指定したoccasion群それぞれについて質問を1問ずつ生成する（1回のLLM呼び出しでまとめて行う）。
+// Coverage.suggestedQuestionsにoccasionごとキャッシュし、収録画面はキャッシュを読むだけにするための土台。
+//
+// birthday・familyMembersは任意入力のプロフィール情報。質問を「孫の話」ではなく
+// 「花子さんの話」のように具体化するためだけに使い、実際に起きていないことや未来の出来事を
+// 想像・仮定させる用途には使わない（システムプロンプトで明示的に禁止する）。
+export async function generateQuestionsForOccasions(params: {
   personName: string;
   relation: string | null;
-  coverageSummary: { occasion: OccasionId; label: string; status: string }[];
+  birthday: Date | null;
+  familyMembers: FamilyMember[];
+  hometown: string | null;
+  occupation: string | null;
+  hobbies: string | null;
+  notes: string | null;
+  targetOccasions: { occasion: OccasionId; label: string }[];
   recentEpisodeSummaries: string[];
 }): Promise<CandidateQuestion[]> {
+  if (params.targetOccasions.length === 0) return [];
   if (DUMMY_MODE) {
-    return dummyQuestions(params.coverageSummary);
+    return dummyQuestionsForOccasions(params.targetOccasions);
   }
 
-  const coverageText = params.coverageSummary
-    .map((c) => `${c.label}(${c.occasion}): ${c.status}`)
-    .join(" / ");
+  const occasionList = params.targetOccasions.map((o) => `${o.occasion}: ${o.label}`).join(" / ");
   const recentText =
     params.recentEpisodeSummaries.length > 0
       ? params.recentEpisodeSummaries.map((s) => `- ${s}`).join("\n")
       : "（まだ収録なし）";
+  const birthdayText = params.birthday
+    ? `${params.birthday.getFullYear()}年生まれ`
+    : "不明";
+  const familyText =
+    params.familyMembers.length > 0
+      ? params.familyMembers.map((f) => `${f.relationship}: ${f.name}`).join(" / ")
+      : "未登録";
+  const profileLines = [
+    params.hometown ? `出身地・育った場所: ${params.hometown}` : null,
+    params.occupation ? `お仕事・経歴: ${params.occupation}` : null,
+    params.hobbies ? `趣味・好きなこと: ${params.hobbies}` : null,
+    params.notes ? `その他の情報: ${params.notes}` : null,
+  ].filter((l): l is string => Boolean(l));
+  const profileText = profileLines.length > 0 ? profileLines.join("\n") : "未登録";
 
   const res = await client().chat.completions.create({
     model: QUESTION_MODEL,
@@ -218,18 +248,23 @@ export async function generateCandidateQuestions(params: {
           "あなたは高齢者への回想インタビューの質問設計者です。以下のルールを厳守してください。" +
           "1) 質問はすべて過去形の回想質問にする（未来に向けた「一言メッセージ」形式は禁止）。" +
           "2) 死や相続を想起させる表現を避ける。3) 演出的・儀礼的な発話を誘発する質問を避ける。" +
-          "4) 1問は1テーマに絞り、答えやすい具体的な質問にする。",
+          "4) 1問は1テーマに絞り、答えやすい具体的な質問にする。" +
+          "5) 生年・家族構成・出身地・経歴・趣味などのプロフィール情報が与えられた場合は、" +
+          "質問の対象を『孫』ではなく実際の名前で呼ぶ、趣味に関連した具体的な質問にする等、" +
+          "質問を具体的にするためだけに使うこと。これらの情報を使って、まだ起きていない出来事や" +
+          "将来の話（例：これから孫が成長したら、等）を想像・仮定する質問は絶対に作らないこと。" +
+          "あくまで対象者が実際に経験した過去の出来事についてのみ尋ねること。",
       },
       {
         role: "user",
         content:
-          `対象者: ${params.personName}（${params.relation ?? "続柄不明"}）\n` +
-          `これまでの収録状況: ${coverageText}\n` +
+          `対象者: ${params.personName}（${params.relation ?? "続柄不明"}、生年: ${birthdayText}）\n` +
+          `家族構成: ${familyText}\n` +
+          `プロフィール:\n${profileText}\n` +
           `直近のエピソード概要:\n${recentText}\n\n` +
-          "次に提示する質問候補を3件、できれば異なる節目カテゴリをカバーするように生成してください。" +
+          `次の節目カテゴリそれぞれについて、質問を1問ずつ生成してください: ${occasionList}\n` +
           'JSON形式で出力: {"questions": [{"text": "質問文", "occasionHint": "occasion id"}]}' +
-          "occasionHintは child_marriage, grandchild_birth, child_career, child_hardship, daily のいずれか。" +
-          "他のテキストは一切出力しないこと。",
+          "questionsの件数は指定したoccasionの数と必ず一致させること。他のテキストは一切出力しないこと。",
       },
     ],
     response_format: { type: "json_object" },
@@ -238,14 +273,11 @@ export async function generateCandidateQuestions(params: {
 
   const raw = res.choices[0]?.message?.content ?? "{}";
   const parsed = extractJson<{ questions: CandidateQuestion[] }>(raw);
-  const validOccasions = new Set(OCCASIONS.map((o) => o.id));
+  const validOccasions = new Set(params.targetOccasions.map((o) => o.occasion));
   const questions = (parsed.questions ?? [])
-    .filter((q) => q.text)
-    .map((q) => ({
-      text: String(q.text),
-      occasionHint: validOccasions.has(q.occasionHint) ? q.occasionHint : "daily",
-    }));
-  return questions.length > 0 ? questions : dummyQuestions(params.coverageSummary);
+    .filter((q) => q.text && validOccasions.has(q.occasionHint))
+    .map((q) => ({ text: String(q.text), occasionHint: q.occasionHint }));
+  return questions.length > 0 ? questions : dummyQuestionsForOccasions(params.targetOccasions);
 }
 
 export interface ColorizeResult {
@@ -406,26 +438,21 @@ function dummyStructure(params: {
   ];
 }
 
-let dummyQuestionCursor = 0;
+// 表層＝本人に見せる質問文は必ず本人の口から出て自然な過去形にする（子の視点にしない）。
+// design: カエルム_共有_20260814/UI仕様書.md 7章・9章参照。
+const DUMMY_QUESTION_POOL: Partial<Record<OccasionId, string[]>> = {
+  child_marriage: ["お二人が結婚したときのこと、覚えていますか"],
+  grandchild_birth: ["お子さんが生まれた日のこと、覚えていますか"],
+  child_career: ["初めて働いたとき、どんな職場でしたか"],
+  child_hardship: ["一番しんどかった時期はいつ頃でしたか"],
+  daily: ["得意料理はどうやって作っていましたか", "子どもの頃、よく遊んだ場所はどこでしたか"],
+};
 
-function dummyQuestions(
-  coverageSummary: { occasion: OccasionId; label: string; status: string }[]
+function dummyQuestionsForOccasions(
+  targetOccasions: { occasion: OccasionId; label: string }[]
 ): CandidateQuestion[] {
-  const pool: CandidateQuestion[] = [
-    { text: "お二人が結婚したときのこと、覚えていますか", occasionHint: "child_marriage" },
-    { text: "私が生まれた日のこと、何か覚えていますか", occasionHint: "grandchild_birth" },
-    { text: "初めて働いたとき、どんな職場でしたか", occasionHint: "child_career" },
-    { text: "一番しんどかった時期はいつ頃でしたか", occasionHint: "child_hardship" },
-    { text: "得意料理はどうやって作っていましたか", occasionHint: "daily" },
-    { text: "子どもの頃、よく遊んだ場所はどこでしたか", occasionHint: "daily" },
-  ];
-  const emptyFirst = [...pool].sort((a, b) => {
-    const sa = coverageSummary.find((c) => c.occasion === a.occasionHint)?.status ?? "empty";
-    const sb = coverageSummary.find((c) => c.occasion === b.occasionHint)?.status ?? "empty";
-    const rank = (s: string) => (s === "empty" ? 0 : s === "thin" ? 1 : 2);
-    return rank(sa) - rank(sb);
+  return targetOccasions.map((t, i) => {
+    const pool = DUMMY_QUESTION_POOL[t.occasion] ?? ["最近、印象に残っていることはありますか"];
+    return { text: pool[i % pool.length], occasionHint: t.occasion };
   });
-  dummyQuestionCursor = (dummyQuestionCursor + 1) % pool.length;
-  const rotated = [...emptyFirst.slice(dummyQuestionCursor), ...emptyFirst.slice(0, dummyQuestionCursor)];
-  return rotated.slice(0, 3);
 }

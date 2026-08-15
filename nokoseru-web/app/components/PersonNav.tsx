@@ -1,11 +1,11 @@
 import Link from "next/link";
 
+// 「話す」「見る」はページ上部の役割カードが担うため、ここには載せない。
+// ここに残す機能は現時点のカエルムUI仕様書には無いが、後で使えるように残してある付随機能。
 const LINKS = [
-  { href: "", label: "概要" },
-  { href: "/record", label: "収録する" },
-  { href: "/search", label: "見る・探す" },
   { href: "/photos", label: "写真のカラー化" },
   { href: "/export", label: "エクスポート" },
+  { href: "/edit", label: "プロフィールを編集" },
 ];
 
 export function PersonNav({ personId, active }: { personId: string; active: string }) {

@@ -15,7 +15,14 @@ import { buildViewerHtml, type ExportData } from "./viewer-template";
 export async function buildExportBundle(personId: string): Promise<string> {
   const person = await prisma.person.findUniqueOrThrow({ where: { id: personId } });
   const sessions = await prisma.session.findMany({
-    where: { personId, status: "structured", videoPath: { not: null } },
+    where: {
+      personId,
+      status: "structured",
+      videoPath: { not: null },
+      // 鍵付きメッセージ：開封日時が来ていないセッションはエクスポートにも含めない
+      // （エクスポート経由で鍵を回避できてしまうのを防ぐ）。
+      OR: [{ unlockAt: null }, { unlockAt: { lte: new Date() } }],
+    },
     include: {
       utterances: { orderBy: { startSec: "asc" } },
       episodes: { where: { excluded: false } },

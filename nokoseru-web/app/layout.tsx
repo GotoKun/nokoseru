@@ -1,22 +1,28 @@
 import type { Metadata } from "next";
-import { Noto_Sans_JP } from "next/font/google";
+import { Zen_Maru_Gothic } from "next/font/google";
 import "./globals.css";
+import { TouchActiveFix } from "./components/km/TouchActiveFix";
+import { RouteDeco } from "./components/km/RouteDeco";
 
-const notoSansJp = Noto_Sans_JP({
-  variable: "--font-noto-sans-jp",
+const zenMaruGothic = Zen_Maru_Gothic({
+  variable: "--font-zen-maru-gothic",
   subsets: ["latin"],
-  weight: ["400", "500", "700"],
+  weight: ["400", "500", "700", "900"],
 });
 
 export const metadata: Metadata = {
-  title: "ノコセル",
-  description: "生前の記録を、節目に届ける。終活サポートアプリ「ノコセル」",
+  title: "カエルム",
+  description: "温かいが、湿っぽくない。生前の話を、節目にご家族へ届ける終活サポートアプリ「カエルム」",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
-    <html lang="ja" className={`${notoSansJp.variable} h-full antialiased`}>
-      <body className="min-h-full flex flex-col">{children}</body>
+    <html lang="ja" className={`${zenMaruGothic.variable} h-full antialiased`}>
+      <body className="min-h-full flex flex-col">
+        <TouchActiveFix />
+        <RouteDeco />
+        {children}
+      </body>
     </html>
   );
 }

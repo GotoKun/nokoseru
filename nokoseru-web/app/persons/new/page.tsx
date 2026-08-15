@@ -1,80 +1,63 @@
 "use client";
 
-import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { PersonProfileForm, type ProfileFormValues } from "@/app/components/PersonProfileForm";
 
+// 画面00の「わたしを、登録する」から来る、自分自身のプロフィール入力画面。
+// カエルムが質問を具体的にするために使う情報（誕生日・出身地・趣味など）と、
+// 家族構成をここでまとめて入力する。
 export default function NewPersonPage() {
   const router = useRouter();
-  const [name, setName] = useState("");
-  const [relation, setRelation] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!name.trim()) {
-      setError("お名前を入力してください");
-      return;
-    }
-    setSubmitting(true);
-    setError(null);
-    try {
-      const res = await fetch("/api/persons", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: name.trim(), relation: relation.trim() || null }),
-      });
-      if (!res.ok) throw new Error("登録に失敗しました");
-      const { person } = await res.json();
-      router.push(`/persons/${person.id}`);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "登録に失敗しました");
-      setSubmitting(false);
-    }
+  async function handleSubmit(values: ProfileFormValues) {
+    const res = await fetch("/api/persons", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: values.name,
+        relation: values.relation.trim() || null,
+        birthday: values.birthday || null,
+        familyMembers: values.familyMembers,
+        hometown: values.hometown.trim() || null,
+        occupation: values.occupation.trim() || null,
+        hobbies: values.hobbies.trim() || null,
+        notes: values.notes.trim() || null,
+      }),
+    });
+    if (!res.ok) throw new Error("登録に失敗しました");
+    await res.json();
+    router.push("/home");
   }
 
   return (
-    <div className="flex-1 bg-background">
-      <main className="mx-auto max-w-lg px-6 py-16">
-        <Link href="/" className="text-sm text-muted hover:text-accent">
-          ← 対象者一覧に戻る
+    <div className="relative flex-1">
+      <main className="km-phone px-6 py-10">
+        <Link href="/home" className="text-xs text-muted hover:text-accent">
+          ← もどる
         </Link>
-        <h1 className="mt-4 text-xl font-bold">対象者登録</h1>
-        <p className="mt-2 text-sm text-muted leading-relaxed">
-          記録を残す方（親御さまなど）の情報を登録します。依頼文の作成やご本人への説明はこのあと行えます。
+        <div className="km-t-h1 mt-4">わたしのプロフィール</div>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
+          お名前や誕生日、趣味などを教えてください。カエルムが質問を考えるときにだけ使います。
+          あわせて、ご家族のことも登録できます。
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-8 flex flex-col gap-5">
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium">お名前</span>
-            <input
-              className="rounded-lg border border-border bg-surface px-4 py-2.5 outline-none focus:border-accent"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="例：山田 花子"
-            />
-          </label>
-          <label className="flex flex-col gap-1.5">
-            <span className="text-sm font-medium">続柄（任意）</span>
-            <input
-              className="rounded-lg border border-border bg-surface px-4 py-2.5 outline-none focus:border-accent"
-              value={relation}
-              onChange={(e) => setRelation(e.target.value)}
-              placeholder="例：母"
-            />
-          </label>
-
-          {error && <p className="text-sm text-red-700">{error}</p>}
-
-          <button
-            type="submit"
-            disabled={submitting}
-            className="mt-2 rounded-full bg-accent px-5 py-3 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-          >
-            {submitting ? "登録しています…" : "登録する"}
-          </button>
-        </form>
+        <div className="mt-8">
+          <PersonProfileForm
+            initial={{
+              name: "",
+              relation: "",
+              birthday: "",
+              familyMembers: [],
+              hometown: "",
+              occupation: "",
+              hobbies: "",
+              notes: "",
+            }}
+            submitLabel="登録する"
+            onSubmit={handleSubmit}
+          />
+        </div>
       </main>
     </div>
   );

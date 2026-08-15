@@ -12,13 +12,13 @@ export default async function ExportPage({ params }: PageProps<"/persons/[person
   const deliveries = await listDeliveries(personId);
 
   return (
-    <div className="flex-1 bg-background">
+    <div className="relative flex-1">
       <main className="mx-auto max-w-2xl px-6 py-16">
-        <Link href={`/persons/${person.id}`} className="text-sm text-muted hover:text-accent">
+        <Link href={`/persons/${person.id}`} className="text-xs text-muted hover:text-accent">
           ← {person.name}さんのページに戻る
         </Link>
-        <h1 className="mt-4 text-2xl font-bold">エクスポート</h1>
-        <p className="mt-2 text-sm text-muted leading-relaxed">
+        <div className="km-t-h1 mt-4">エクスポート</div>
+        <p className="mt-2 text-sm leading-relaxed text-muted">
           動画・字幕・タグ情報を1つのファイルにまとめて書き出します。サーバーやこのサービスが終了しても、
           ダウンロードした一式は端末内の動画プレイヤーとブラウザだけで再生・検索できます。
         </p>
@@ -27,7 +27,7 @@ export default async function ExportPage({ params }: PageProps<"/persons/[person
         <ExportFlow personId={person.id} />
 
         <section className="mt-10">
-          <h2 className="text-sm font-medium">これまでのエクスポート</h2>
+          <h2 className="text-sm font-bold">これまでのエクスポート</h2>
           {deliveries.length === 0 ? (
             <p className="mt-3 text-sm text-muted">まだエクスポートはありません。</p>
           ) : (
@@ -35,7 +35,7 @@ export default async function ExportPage({ params }: PageProps<"/persons/[person
               {deliveries.map((d) => (
                 <li
                   key={d.id}
-                  className="rounded-lg border border-border bg-surface px-4 py-3 text-xs text-muted flex items-center justify-between"
+                  className="flex items-center justify-between rounded-2xl px-4 py-3 text-xs text-muted shadow-[inset_0_0_0_1px_var(--border)]"
                 >
                   <span>{new Date(d.createdAt).toLocaleString("ja-JP")}</span>
                   {d.exportBundlePath && (

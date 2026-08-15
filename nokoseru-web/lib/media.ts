@@ -83,6 +83,53 @@ export async function remuxForSeeking(input: Buffer, ext: string): Promise<Buffe
   }
 }
 
+// 写真カラー化のAI出力は、プロンプトで「輪郭・向きを変えないで」と指示しても
+// 守られる保証がない（実測で顔の変形を確認済み）。そこで最終画像の構造（明暗＝形・輪郭・表情）は
+// 常に元の白黒写真からそのまま使い、AIの出力からは色情報（色相・彩度）だけを抜き出して重ねる。
+// これにより構造の同一性は「AIへのお願い」ではなく合成処理として保証される。
+//
+// AI出力は元写真と解像度・構図が完全には一致しない（実測: 400x400入力→1024x1024出力）ため、
+// 色情報はscale2refで元写真のサイズに合わせたうえ、軽くぼかして重ねる。
+// これは動画・画像圧縮のクロマサブサンプリング（JPEG等が採用）と同じ考え方で、
+// 人間の目は明暗のズレには敏感だが色のズレには鈍感なため、多少の位置ズレを目立たなくできる。
+export async function mergeLumaFromOriginal(
+  original: Buffer,
+  originalExt: string,
+  colorized: Buffer,
+  colorizedExt: string
+): Promise<Buffer> {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "nokoseru-colorize-"));
+  const origPath = path.join(dir, `orig.${originalExt}`);
+  const colorPath = path.join(dir, `color.${colorizedExt}`);
+  const outPath = path.join(dir, "out.png");
+  try {
+    await writeFile(origPath, original);
+    await writeFile(colorPath, colorized);
+    await runFile("ffmpeg", [
+      "-y",
+      "-hide_banner",
+      "-loglevel",
+      "error",
+      "-i",
+      origPath,
+      "-i",
+      colorPath,
+      "-filter_complex",
+      "[1:v][0:v]scale2ref=w=iw:h=ih[csc][org];" +
+        "[org]format=yuv420p,extractplanes=y[y];" +
+        "[csc]format=yuv420p,extractplanes=u+v[uraw][vraw];" +
+        "[uraw]gblur=sigma=3[u];[vraw]gblur=sigma=3[v];" +
+        "[y][u][v]mergeplanes=0x001020:yuv420p[out]",
+      "-map",
+      "[out]",
+      outPath,
+    ]);
+    return await readFile(outPath);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
 function runFile(command: string, args: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const proc = spawn(command, args);

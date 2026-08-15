@@ -41,11 +41,11 @@ CREATE TABLE "Episode" (
     "title" TEXT NOT NULL,
     "startSec" REAL NOT NULL,
     "endSec" REAL NOT NULL,
-    "tags" JSONB NOT NULL DEFAULT [],
+    "tags" JSONB NOT NULL DEFAULT '[]',
     "era" TEXT,
-    "people" JSONB NOT NULL DEFAULT [],
+    "people" JSONB NOT NULL DEFAULT '[]',
     "theme" TEXT,
-    "deliverTo" JSONB NOT NULL DEFAULT [],
+    "deliverTo" JSONB NOT NULL DEFAULT '[]',
     "occasion" TEXT,
     "excluded" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -58,7 +58,7 @@ CREATE TABLE "Coverage" (
     "personId" TEXT NOT NULL,
     "occasion" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'empty',
-    "suggestedQuestions" JSONB NOT NULL DEFAULT [],
+    "suggestedQuestions" JSONB NOT NULL DEFAULT '[]',
     "updatedAt" DATETIME NOT NULL,
     CONSTRAINT "Coverage_personId_fkey" FOREIGN KEY ("personId") REFERENCES "Person" ("id") ON DELETE RESTRICT ON UPDATE CASCADE
 );

@@ -91,33 +91,33 @@ export function PhotoCard({
   const displayColorizedUrl = colorizedUrl ?? photo.originalUrl;
 
   return (
-    <div className="rounded-xl border border-border bg-surface p-4">
+    <div className="rounded-2xl p-4 shadow-[inset_0_0_0_1px_var(--border)]">
       <div className="grid grid-cols-2 gap-2">
         <div>
-          <p className="text-[11px] text-muted mb-1">元の写真</p>
+          <p className="mb-1 text-[11px] text-muted">元の写真</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={photo.originalUrl}
             alt="元の写真"
             onClick={() => setLightbox({ src: photo.originalUrl, alt: "元の写真" })}
-            className="w-full cursor-zoom-in rounded-lg border border-border aspect-square object-cover hover:opacity-90"
+            className="aspect-square w-full cursor-zoom-in rounded-2xl object-cover shadow-[inset_0_0_0_1px_var(--border)] hover:opacity-90"
           />
         </div>
         <div>
-          <p className="text-[11px] text-muted mb-1">カラー化</p>
+          <p className="mb-1 text-[11px] text-muted">カラー化</p>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={displayColorizedUrl}
             alt="カラー化した写真"
             onClick={() => setLightbox({ src: displayColorizedUrl, alt: "カラー化した写真" })}
-            className="w-full cursor-zoom-in rounded-lg border border-border aspect-square object-cover hover:opacity-90"
+            className="aspect-square w-full cursor-zoom-in rounded-2xl object-cover shadow-[inset_0_0_0_1px_var(--border)] hover:opacity-90"
           />
         </div>
       </div>
 
       <a
         href={displayColorizedUrl}
-        download={`nokoseru-photo-${photo.id}.png`}
+        download={`kaerumu-photo-${photo.id}.png`}
         className="mt-2 inline-block text-xs text-accent hover:underline"
       >
         カラー化した写真をダウンロード
@@ -130,20 +130,20 @@ export function PhotoCard({
           onChange={(e) => setComment(e.target.value)}
           placeholder="例：もう少し肌の色を明るく、背景は元のままで"
           rows={2}
-          className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-accent"
+          className="km-textarea mt-1 text-sm"
         />
       </label>
       <div className="mt-2 flex items-center gap-2">
         <button
           onClick={recolorize}
           disabled={recoloring}
-          className="rounded-full border border-border px-4 py-1.5 text-xs font-medium hover:border-accent disabled:opacity-50"
+          className="rounded-full px-4 py-1.5 text-xs font-medium shadow-[inset_0_0_0_1px_var(--border)] hover:shadow-[inset_0_0_0_1px_var(--accent-strong)] disabled:opacity-50"
         >
           {recoloring ? "作り直しています…" : "この内容で作り直す"}
         </button>
         <button
           onClick={() => setConfirmingDelete(true)}
-          className="rounded-full border border-border px-4 py-1.5 text-xs font-medium text-red-700 hover:border-red-700"
+          className="rounded-full px-4 py-1.5 text-xs font-medium text-red-700 shadow-[inset_0_0_0_1px_var(--border)] hover:shadow-[inset_0_0_0_1px_#b91c1c]"
         >
           削除する
         </button>

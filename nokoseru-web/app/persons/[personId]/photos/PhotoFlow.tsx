@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { PhotoCard, type PhotoItem } from "./PhotoCard";
+import { Hit } from "@/app/components/km/Hit";
 
 export function PhotoFlow({ personId }: { personId: string }) {
   const fileRef = useRef<HTMLInputElement | null>(null);
@@ -67,13 +68,9 @@ export function PhotoFlow({ personId }: { personId: string }) {
           e.target.value = "";
         }}
       />
-      <button
-        onClick={() => fileRef.current?.click()}
-        disabled={uploadProgress !== null}
-        className="rounded-full bg-accent px-5 py-2.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
-      >
-        写真を選ぶ（複数選択可）
-      </button>
+      <Hit locked={uploadProgress !== null} onActivate={() => fileRef.current?.click()} className="w-fit">
+        <div className="km-btn km-btn-primary">写真を選ぶ（複数選択可）</div>
+      </Hit>
 
       {uploadProgress && (
         <p className="mt-3 text-sm text-muted">

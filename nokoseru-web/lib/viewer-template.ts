@@ -33,7 +33,7 @@ export function buildViewerHtml(data: ExportData): string {
 <html lang="ja">
 <head>
 <meta charset="utf-8" />
-<title>${escapeHtml(data.person.name)}さんの記録 - ノコセル エクスポート</title>
+<title>${escapeHtml(data.person.name)}さんの記録 - カエルム エクスポート</title>
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <style>
   :root { color-scheme: light dark; }
@@ -61,7 +61,7 @@ export function buildViewerHtml(data: ExportData): string {
 <body>
 <header>
   <h1>${escapeHtml(data.person.name)}さんの記録</h1>
-  <div class="sub">ノコセル エクスポート ／ 生成日時: ${escapeHtml(data.generatedAt)} ／ サーバー・インターネット接続不要</div>
+  <div class="sub">カエルム エクスポート ／ 生成日時: ${escapeHtml(data.generatedAt)} ／ サーバー・インターネット接続不要</div>
 </header>
 <main>
   <input class="search" id="q" type="text" placeholder="キーワード・タグで検索（例: 結婚、仕事、料理）" autocomplete="off" />

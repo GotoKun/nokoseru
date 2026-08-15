@@ -11,10 +11,16 @@ datasource db {
 }
 
 model Person {
-  id        String   @id @default(uuid())
-  name      String
-  relation  String? // 続柄（例: 父、母、祖母）
-  createdAt DateTime @default(now())
+  id            String    @id @default(uuid())
+  name          String
+  relation      String? // 続柄（例: 父、母、祖母）
+  birthday      DateTime? // 任意入力。質問の時代背景の推定に使う（未来の想像には使わない）
+  familyMembers Json      @default("[]") // 任意入力。[{name, relationship}]。質問を具体化するための文脈のみに使う
+  hometown      String? // 任意入力。出身地・育った場所
+  occupation    String? // 任意入力。お仕事・経歴
+  hobbies       String? // 任意入力。趣味・好きなこと
+  notes         String? // 任意入力。その他、質問を考える上で知っておいてほしいこと（自由記述）
+  createdAt     DateTime  @default(now())
 
   sessions   Session[]
   coverages  Coverage[]
@@ -35,6 +41,7 @@ model Session {
   status       String    @default("uploading") // uploading|processing|structured|failed
   sourcePhotoId String?
   sourcePhoto  Photo?    @relation(fields: [sourcePhotoId], references: [id])
+  unlockAt     DateTime? // 撮影者が設定する任意の開封日時。設定時、遺族側は存在は分かるが内容はこの日時まで見られない
   createdAt    DateTime  @default(now())
 
   utterances Utterance[]

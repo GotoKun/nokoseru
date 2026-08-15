@@ -1,13 +1,40 @@
 @import "tailwindcss";
 
+/* =========================================================================
+   カエルム デザイントークン
+   出典: カエルム_共有_20260814/UI仕様書.md 3章, モックアップ.html
+   既存のTailwindユーティリティ名（bg-background 等）はそのまま残し、
+   値だけカエルムのトークンに合わせている。
+   ========================================================================= */
 :root {
-  --background: #f7f4ee;
-  --surface: #fffdf9;
-  --foreground: #2c2620;
-  --muted: #837a6c;
-  --border: #e4dccb;
-  --accent: #8a6d3b;
-  --accent-soft: #f1e4c8;
+  /* モックアップの--page(#f3f1ec)はデモツールの枠外（ワークベンチ）の色で、
+     実際のアプリ画面(.phone/.scr)は常に--surfaceと同じ白。
+     実装ではブラウザの表示領域そのものが「画面」になるため、白を既定背景にする。 */
+  --background: #ffffff;
+  --surface: #ffffff;
+  --foreground: #2c2620; /* --ink */
+
+  /* --muted は15px未満の文字でも安全なコントラストを優先し、
+     仕様書の --muted-strong (#6b6151) を既定にする。
+     --muted-soft (#7d7263) は27px(親側)/15px(子側)以上の大きな文字専用。 */
+  --muted: #6b6151;
+  --muted-soft: #7d7263;
+  --border: #e8dfc9; /* --rule */
+
+  /* --accent は小さい文字・小さい塗りでも5.0:1以上を保つ --accent-ink を既定にする。
+     --accent-strong (#e06c00) は30px以上の大きな文字・大きい塗り専用（収録フローの主要CTA）。 */
+  --accent: #a34d00;
+  --accent-strong: #e06c00;
+  --accent-soft: #ffedc2; /* --pale */
+  --accent-soft-2: #ffe2a1; /* --pale-2 押下中の封カード */
+  --disabled-bg: #eae3d2;
+  --disabled-ink: #a89c88;
+
+  --cam: #ded7c7;
+  --cam-2: #cfc7b5;
+  --video: #241f1a;
+  --video-2: #3b332b;
+  --warm: #f0a052; /* 背景の泡飾り専用の小円1つだけに使う */
 }
 
 @theme inline {
@@ -15,14 +42,632 @@
   --color-surface: var(--surface);
   --color-foreground: var(--foreground);
   --color-muted: var(--muted);
+  --color-muted-soft: var(--muted-soft);
   --color-border: var(--border);
   --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
   --color-accent-soft: var(--accent-soft);
-  --font-sans: var(--font-noto-sans-jp);
+  --color-accent-soft-2: var(--accent-soft-2);
+  --color-disabled-bg: var(--disabled-bg);
+  --color-disabled-ink: var(--disabled-ink);
+  --font-sans: var(--font-zen-maru-gothic);
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: var(--font-noto-sans-jp), -apple-system, "Hiragino Sans", sans-serif;
+  font-family: var(--font-zen-maru-gothic), "Hiragino Maru Gothic ProN", "ヒラギノ丸ゴ ProN",
+    "Hiragino Sans", "Noto Sans JP", "Yu Gothic", sans-serif;
+}
+
+/* =========================================================================
+   カエルム コンポーネントCSS（km- プレフィックス）
+   出典: カエルム_共有_20260814/モックアップ.html のスタイルを、固定390×844の
+   実機シミュレータ枠から切り離して再利用可能な形に移植したもの。
+   角丸は4種のみ（6/16/24/ピル）、アクセントは同一色相の濃度違いのみを使う。
+   ========================================================================= */
+
+.km-phone {
+  max-width: 30rem;
+  margin: 0 auto;
+  width: 100%;
+}
+
+/* ---- 背景の泡飾り ----
+   出典: モックアップ.html の .deco。押せるものではないので押下判定には関与しない
+   （pointer-events:none）。親側の画面（役割選択・質問・置く・収録中・確認・のこした）
+   だけに出す。子側（一覧・まだ聞けていないこと・再生）には出さない
+   （モックアップのDECOテーブルにこれらの画面が無いのに合わせている）。
+   座標はモックアップの390×844フレーム基準の値を%に変換して流用し、可変の高さに追従させる。 */
+.km-deco-host {
+  position: relative;
+  overflow: hidden;
+}
+.km-deco {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.km-deco i {
+  position: absolute;
+  left: 0;
+  top: 0;
+  border-radius: 50%;
+  display: block;
+  transition:
+    left 700ms cubic-bezier(0.22, 0.9, 0.3, 1),
+    top 700ms cubic-bezier(0.22, 0.9, 0.3, 1),
+    transform 700ms cubic-bezier(0.22, 0.9, 0.3, 1),
+    opacity 700ms ease;
+}
+.km-deco .a {
+  width: 150px;
+  height: 150px;
+  background: var(--accent-soft);
+}
+.km-deco .b {
+  width: 44px;
+  height: 44px;
+  box-shadow: inset 0 0 0 3px var(--accent-soft-2);
+}
+.km-deco .c {
+  width: 16px;
+  height: 16px;
+  background: var(--warm);
+}
+.km-deco .d {
+  width: 64px;
+  height: 64px;
+  background: #fff6e3;
+}
+@media (prefers-reduced-motion: reduce) {
+  .km-deco i {
+    transition: none !important;
+  }
+}
+
+/* ---- タイポグラフィ ---- */
+.km-brand {
+  font: 900 15px/1.4 var(--font-sans);
+  color: var(--accent);
+  letter-spacing: 0.08em;
+}
+.km-t-note {
+  font: 500 18px/1.4 var(--font-sans);
+  color: var(--muted-soft);
+}
+.km-t-h1 {
+  font: 700 26px/1.4 var(--font-sans);
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.km-t-hero {
+  font: 700 32px/1.45 var(--font-sans);
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.km-t-far {
+  font: 700 28px/1.4 var(--font-sans);
+  letter-spacing: -0.015em;
+  text-wrap: balance;
+}
+.km-t-sub {
+  font: 500 18px/1.5 var(--font-sans);
+  color: var(--muted-soft);
+}
+.km-t-status {
+  font: 700 26px/1.4 var(--font-sans);
+  color: var(--accent-strong);
+}
+.km-t-topic {
+  font: 500 19px/1.4 var(--font-sans);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.km-t-topic.b {
+  font-weight: 700;
+}
+
+/* ---- 押せるもの ----
+   ヒットエリアを見た目より上下8px広げる（指の乾燥で取りこぼされるため）。 */
+.km-hit {
+  margin: -8px 0;
+  padding: 8px 0;
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  display: block;
+}
+.km-hit:focus-visible {
+  outline: 3px solid var(--accent-strong);
+  outline-offset: 2px;
+  border-radius: 48px;
+}
+.km-hit.r24:focus-visible {
+  border-radius: 24px;
+}
+.km-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  text-align: center;
+  padding: 0 20px;
+}
+/* 枠は border ではなく inset box-shadow。border だと押下でボックスが動く */
+.km-btn-primary {
+  height: 72px;
+  border-radius: 36px;
+  background: var(--accent-strong);
+  color: #fff;
+  font: 700 22px/1 var(--font-sans);
+}
+.km-hit:active .km-btn-primary {
+  background: #fff;
+  color: var(--accent-strong);
+  box-shadow: inset 0 0 0 5px var(--accent-strong);
+  transform: scale(0.96);
+}
+.km-btn-primary.big {
+  height: 80px;
+  border-radius: 40px;
+  font-size: 24px;
+}
+.km-btn-ghost {
+  height: 60px;
+  border-radius: 30px;
+  background: #fff;
+  color: var(--muted-soft);
+  box-shadow: inset 0 0 0 1px var(--border);
+  font: 500 18px/1 var(--font-sans);
+}
+.km-btn-ghost.sm {
+  height: 54px;
+  border-radius: 27px;
+  font-size: 16px;
+}
+.km-hit:active .km-btn-ghost {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 3px var(--accent-strong);
+  transform: scale(0.96);
+}
+.km-btn-equal {
+  height: 76px;
+  border-radius: 38px;
+  background: #fff;
+  color: var(--accent-strong);
+  box-shadow: inset 0 0 0 2px var(--accent-strong);
+  font: 700 22px/1 var(--font-sans);
+}
+.km-hit:active .km-btn-equal {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 3px var(--accent-strong);
+  transform: scale(0.96);
+}
+.km-btn-dead {
+  background: var(--accent-soft) !important;
+  color: var(--accent) !important;
+}
+.km-btn-off {
+  background: var(--disabled-bg) !important;
+  color: var(--disabled-ink) !important;
+  box-shadow: none !important;
+}
+
+.km-card-role {
+  min-height: 176px;
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--border);
+  border-radius: 24px;
+  padding: 24px 22px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 12px;
+}
+/* 役割カード（画面00・25等）の淡いパステル塗り分け。カードごとに見分けがつくよう
+   微妙に色相を変えているだけで、彩度・明度はそろえてある（アクセントを増やしすぎないため）。 */
+.km-card-role.tint-a {
+  background: #fbeade;
+}
+.km-card-role.tint-b {
+  background: #e4eef6;
+}
+.km-card-role.tint-c {
+  background: #e9f1e3;
+}
+.km-hit:active .km-card-role {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 3px var(--accent-strong);
+  transform: scale(0.98);
+}
+.km-card-role .km-rl {
+  font: 700 24px/1.4 var(--font-sans);
+  letter-spacing: -0.015em;
+}
+.km-card-role .km-rs {
+  font: 500 15px/1.4 var(--font-sans);
+  color: var(--muted-soft);
+}
+
+/* ---- カメラ枠・映像はすべて1:1（正方形） ----
+   縦置きスマホでも横長PCでもレターボックス・トリミングが起きない。動画そのものは無加工。 */
+.km-cam {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 16px;
+  background: var(--cam);
+  overflow: hidden;
+}
+.km-cam video {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.km-cam .km-cnote {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: 12px 10px;
+  background: rgba(255, 255, 255, 0.86);
+  font: 500 15px/1.35 var(--font-sans);
+  color: var(--muted-soft);
+  text-align: center;
+}
+.km-player {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  background: var(--video);
+  border-radius: 16px;
+  overflow: hidden;
+}
+.km-player video {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: var(--video);
+}
+.km-cc {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  background: rgba(44, 38, 32, 0.74);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: 600 14px/1.45 var(--font-sans);
+  color: #fff;
+  text-align: center;
+}
+
+/* ---- 相槌 ----
+   収録中だけ動く。内容には反応せず、声が出ているかどうかだけに反応する想定。
+   必ず transform で動かす（margin/top だとカメラ枠の位置が動く）。 */
+.km-nod {
+  animation: km-aizuchi 2800ms ease-in-out infinite;
+  will-change: transform;
+}
+@keyframes km-aizuchi {
+  0%,
+  100% {
+    transform: none;
+  }
+  38% {
+    transform: translateY(8px);
+  }
+  64% {
+    transform: none;
+  }
+}
+.km-waitpulse {
+  animation: km-matteru 5600ms ease-in-out infinite;
+}
+@keyframes km-matteru {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.68;
+  }
+}
+.km-splashword {
+  font: 900 40px/1 var(--font-sans);
+  letter-spacing: 0.12em;
+  color: var(--accent-strong);
+  animation: km-rise 700ms ease-out both;
+}
+@keyframes km-rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .km-nod,
+  .km-waitpulse,
+  .km-splashword {
+    animation: none !important;
+  }
+}
+
+/* ---- 子側：一覧の3種のカード ---- */
+.km-kgrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+@media (min-width: 640px) {
+  .km-kgrid {
+    grid-template-columns: repeat(3, 1fr);
+  }
+}
+.km-kcard {
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--border);
+  overflow: hidden;
+  cursor: pointer;
+}
+.km-kcard:active {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 3px var(--accent-strong);
+  transform: scale(0.97);
+}
+.km-kthumb {
+  aspect-ratio: 1 / 1;
+  background: var(--cam);
+  position: relative;
+  overflow: hidden;
+}
+.km-kthumb .h {
+  position: absolute;
+  top: 19.3%;
+  left: 50%;
+  margin-left: -15.2%;
+  width: 30.4%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  background: var(--cam-2);
+}
+.km-kthumb .b {
+  position: absolute;
+  bottom: -8.2%;
+  left: 50%;
+  margin-left: -32.15%;
+  width: 64.3%;
+  height: 58.5%;
+  border-radius: 50% 50% 0 0;
+  background: var(--cam-2);
+}
+.km-player .h {
+  position: absolute;
+  top: 19.3%;
+  left: 50%;
+  margin-left: -15.2%;
+  width: 30.4%;
+  aspect-ratio: 1 / 1;
+  border-radius: 50%;
+  background: var(--video-2);
+}
+.km-player .b {
+  position: absolute;
+  bottom: -8.2%;
+  left: 50%;
+  margin-left: -32.15%;
+  width: 64.3%;
+  height: 58.5%;
+  border-radius: 50% 50% 0 0;
+  background: var(--video-2);
+}
+.km-kbody {
+  padding: 10px 10px 12px;
+}
+.km-kt {
+  font: 700 14px/1.45 var(--font-sans);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.km-km {
+  margin-top: 6px;
+  font: 500 12px/1.3 var(--font-sans);
+  color: var(--muted-soft);
+}
+/* 施錠中。節目の名前だけ出す。日付もカウントダウンも件数も出さない
+   （数えた瞬間に「消化すべき残件」になる） */
+.km-seal {
+  position: relative;
+  min-height: 148px;
+  height: 100%;
+  padding: 0 14px;
+  text-align: center;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  cursor: default;
+}
+.km-seal .km-wax {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--disabled-bg);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.km-seal .km-bar {
+  width: 60px;
+  height: 1px;
+  background: var(--border);
+}
+.km-seal .km-on {
+  font: 700 15px/1.45 var(--font-sans);
+}
+.km-seal .km-txt {
+  font: 500 12px/1.4 var(--font-sans);
+  color: var(--muted-soft);
+}
+
+/* ---- 節目の行（まだ聞けていないこと） ---- */
+.km-orow {
+  padding: 16px 0 14px;
+  border-bottom: 1px solid var(--border);
+}
+.km-orow:last-child {
+  border-bottom: 0;
+}
+.km-otop {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+}
+.km-oname {
+  flex: 1;
+  font: 700 16px/1.5 var(--font-sans);
+}
+.km-otag {
+  font: 700 12px/1 var(--font-sans);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 6px;
+  padding: 6px 9px;
+  white-space: nowrap;
+}
+.km-otag.none {
+  background: none;
+  color: var(--muted-soft);
+  font-weight: 500;
+  padding: 6px 0;
+}
+.km-oitem {
+  margin-top: 8px;
+  display: flex;
+  gap: 8px;
+  font: 500 14px/1.5 var(--font-sans);
+  color: var(--muted-soft);
+}
+
+/* ---- 検索・さがす ---- */
+.km-pill {
+  font: 700 12px/1 var(--font-sans);
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: 16px;
+  padding: 10px 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.km-pill:active {
+  background: var(--accent-soft-2);
+  transform: scale(0.96);
+}
+.km-pill.q {
+  font-weight: 500;
+  color: var(--muted-soft);
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+.km-askbar input {
+  flex: 1;
+  height: 48px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 16px;
+  padding: 0 12px;
+  font: 500 16px/1 var(--font-sans);
+  color: var(--foreground);
+  outline: none;
+}
+.km-askbar input:focus {
+  border-color: var(--accent-strong);
+}
+/* 単体の入力欄（ログイン画面等）。askbarと同じ見た目で、単独でも使えるようにしたもの。 */
+.km-input {
+  width: 100%;
+  height: 56px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 16px;
+  padding: 0 16px;
+  font: 500 16px/1 var(--font-sans);
+  color: var(--foreground);
+  outline: none;
+}
+.km-input:focus {
+  border-color: var(--accent-strong);
+}
+.km-input:disabled {
+  background: var(--disabled-bg);
+  color: var(--disabled-ink);
+}
+.km-textarea {
+  width: 100%;
+  min-height: 88px;
+  border: 1px solid var(--border);
+  background: #fff;
+  border-radius: 16px;
+  padding: 12px 16px;
+  font: 500 16px/1.5 var(--font-sans);
+  color: var(--foreground);
+  outline: none;
+  resize: vertical;
+}
+.km-textarea:focus {
+  border-color: var(--accent-strong);
+}
+/* フォームのラベル。km-inputの上に添える小見出し。 */
+.km-label {
+  font: 700 14px/1.4 var(--font-sans);
+  color: var(--foreground);
+}
+.km-send {
+  width: 60px;
+  height: 48px;
+  border-radius: 24px;
+  background: var(--accent);
+  color: #fff;
+  font: 700 14px/1 var(--font-sans);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: none;
+}
+.km-send:active {
+  background: #fff;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 4px var(--accent);
+  transform: scale(0.95);
+}
+.km-near {
+  margin-top: 10px;
+  background: #fff;
+  border-radius: 16px;
+  box-shadow: inset 0 0 0 1px var(--border);
+  padding: 10px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+.km-near .km-th {
+  width: 56px;
+  height: 40px;
+  border-radius: 6px;
+  background: var(--cam);
+  flex: none;
 }

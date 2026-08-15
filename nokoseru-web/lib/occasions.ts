@@ -15,30 +15,32 @@ export interface OccasionDef {
   description: string;
 }
 
+// ラベルはカエルムUI仕様書の節目一覧（画面06）の表記に合わせている。
+// occasionの裏層（想定配信先）としての意味は変えず、表示文言だけを統一した。
 export const OCCASIONS: OccasionDef[] = [
   {
     id: "child_marriage",
-    label: "子の結婚",
+    label: "結婚のとき",
     description: "結婚や夫婦としての歩みにまつわる話",
   },
   {
     id: "grandchild_birth",
-    label: "孫の誕生",
-    description: "自分が生まれたとき・子育てにまつわる話",
+    label: "子どもが生まれたとき",
+    description: "お子さんが生まれたとき・子育てにまつわる話",
   },
   {
     id: "child_career",
-    label: "子の就職・転職",
+    label: "仕事で迷ったとき",
     description: "仕事・キャリアの選び方にまつわる話",
   },
   {
     id: "child_hardship",
-    label: "困難な時期",
+    label: "つらいことがあったとき",
     description: "しんどかった時期をどう乗り越えたかの話",
   },
   {
     id: "daily",
-    label: "日常（随時）",
+    label: "なんでもない日に",
     description: "得意料理・暮らしの知恵など日々の話",
   },
 ];
